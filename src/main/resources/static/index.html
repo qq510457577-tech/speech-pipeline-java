@@ -435,6 +435,9 @@ var ttsAudioUrl = null, ttsAudioEl = null, ttsBlob = null;
 var selectedVoice = 'default';
 var cloneFileBase64 = null;
 var allTags = {};
+var audioSendBuffer = [];
+var audioSendBufferLength = 0;
+var sentAudioChunks = 0;
 
 // ===== Tab 切换 =====
 function switchTab(tab) {
@@ -831,7 +834,7 @@ function initVisualizer() {
 
 function connectMicrophone() {
     return navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     }).then(function(stream) {
         mediaStream = stream;
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -882,15 +885,15 @@ function startRecognition() {
         document.getElementById('recogBadge').className = 'badge badge-active';
         document.getElementById('recogBadge').textContent = '转写中';
         addLog('开始实时转写...');
+        audioSendBuffer = [];
+        audioSendBufferLength = 0;
+        sentAudioChunks = 0;
 
         scriptProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
         scriptProcessor.onaudioprocess = function(e) {
             var audioData = e.inputBuffer.getChannelData(0);
             var int16 = resampleTo16kInt16(audioData, audioCtx.sampleRate);
-            var base64 = arrayBufferToBase64(int16);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ audio: base64 }));
-            }
+            enqueueAudio(int16);
         };
 
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -950,6 +953,7 @@ function stopRecognition() {
     var closingWs = ws;
     ws = null;
     if (closingWs && closingWs.readyState === WebSocket.OPEN) {
+        flushAudio();
         try { closingWs.send(JSON.stringify({ stop: true })); } catch (e) {}
         setTimeout(function() {
             closingWs.onclose = null;
@@ -995,6 +999,33 @@ function resampleTo16kInt16(float32Array, sourceRate) {
         resampled[i] = float32Array[i0] * (1 - frac) + float32Array[i1] * frac;
     }
     return float32ToInt16(resampled);
+}
+
+function enqueueAudio(int16Chunk) {
+    if (!int16Chunk || !int16Chunk.length) return;
+    audioSendBuffer.push(int16Chunk);
+    audioSendBufferLength += int16Chunk.length;
+    // Send about 100ms of 16kHz 16-bit mono PCM at a time.
+    if (audioSendBufferLength >= 1600) {
+        flushAudio();
+    }
+}
+
+function flushAudio() {
+    if (!audioSendBufferLength || !ws || ws.readyState !== WebSocket.OPEN) return;
+    var merged = new Int16Array(audioSendBufferLength);
+    var offset = 0;
+    audioSendBuffer.forEach(function(chunk) {
+        merged.set(chunk, offset);
+        offset += chunk.length;
+    });
+    ws.send(JSON.stringify({ audio: arrayBufferToBase64(merged) }));
+    audioSendBuffer = [];
+    audioSendBufferLength = 0;
+    sentAudioChunks++;
+    if (sentAudioChunks === 1) {
+        addLog('音频流已发送到实时转写服务');
+    }
 }
 
 function arrayBufferToBase64(buffer) {

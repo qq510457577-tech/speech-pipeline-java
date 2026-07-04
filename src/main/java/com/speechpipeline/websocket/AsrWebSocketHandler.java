@@ -41,10 +41,13 @@ public class AsrWebSocketHandler implements WebSocketHandler {
     private static final Map<WebSocketSession, StringBuilder> CURRENT_TEXTS = new ConcurrentHashMap<>();
     /** 每个会话的转写器 */
     private static final Map<WebSocketSession, SpeechTranscriber> TRANSCRIBERS = new ConcurrentHashMap<>();
+    /** 每个会话累计发送到 ASR 的音频字节数 */
+    private static final Map<WebSocketSession, Long> AUDIO_BYTES = new ConcurrentHashMap<>();
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         CURRENT_TEXTS.put(session, new StringBuilder());
+        AUDIO_BYTES.put(session, 0L);
         log.info("WebSocket 已连接: {}", session.getId());
     }
 
@@ -161,9 +164,9 @@ public class AsrWebSocketHandler implements WebSocketHandler {
                 transcriber.setEnableIntermediateResult(true);
                 transcriber.setEnablePunctuation(true);
                 transcriber.setEnableITN(true);
-                // transcriber.addCustomedParam("model", aliConfig.getAsrModel());
+                transcriber.addCustomedParam("model", aliConfig.getAsrModel());
                 transcriber.addCustomedParam("returnSentenceLevel", true);
-                transcriber.addCustomedParam("route_group", "asr");
+                transcriber.addCustomedParam("route_group", "asr-EEND");
 
                 transcriber.start();
                 log.info("ASR 转写器已创建: {}", session.getId());
@@ -202,6 +205,10 @@ public class AsrWebSocketHandler implements WebSocketHandler {
         if (transcriber != null) {
             try {
                 transcriber.send(pcmData);
+                long total = AUDIO_BYTES.merge(session, (long) pcmData.length, Long::sum);
+                if (total == pcmData.length || total % 32000 < pcmData.length) {
+                    log.info("ASR 已接收音频流: session={}, totalBytes={}", session.getId(), total);
+                }
             } catch (Exception e) {
                 log.error("发送音频失败: {}", e.getMessage());
             }
@@ -216,7 +223,9 @@ public class AsrWebSocketHandler implements WebSocketHandler {
             @Override
             public void onTranscriberStart(SpeechTranscriberResponse response) {
                 log.info("ASR 识别启动: task_id={}", response.getTaskId());
-                sendJson(session, "start", response.getTaskId());
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("taskId", response.getTaskId());
+                sendJson(session, "start", data);
             }
 
             @Override
@@ -260,7 +269,10 @@ public class AsrWebSocketHandler implements WebSocketHandler {
             @Override
             public void onFail(SpeechTranscriberResponse response) {
                 log.error("ASR 识别失败: status={}, text={}", response.getStatus(), response.getStatusText());
-                sendJson(session, "error", response.getStatusText());
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("status", response.getStatus());
+                data.put("message", response.getStatusText());
+                sendJson(session, "error", data);
             }
         };
     }
@@ -284,6 +296,7 @@ public class AsrWebSocketHandler implements WebSocketHandler {
         sendJson(session, "final", finalText);
         log.info("ASR 已停止，最终结果: '{}'", finalText);
         CURRENT_TEXTS.remove(session);
+        AUDIO_BYTES.remove(session);
     }
 
     /**
@@ -299,6 +312,7 @@ public class AsrWebSocketHandler implements WebSocketHandler {
             }
         }
         CURRENT_TEXTS.remove(session);
+        AUDIO_BYTES.remove(session);
     }
 
     private String combineText(StringBuilder finalizedText, String liveText) {
