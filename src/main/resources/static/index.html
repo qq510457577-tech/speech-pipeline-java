@@ -408,6 +408,13 @@
                 <input type="file" id="asrFileInput" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.pcm,.raw,audio/*" onchange="recognizeAudioFile(event)">
             </div>
 
+            <div class="upload-area" onclick="document.getElementById('lidFileInput').click()" style="margin-bottom:1rem;">
+                <div class="upload-icon">🌐</div>
+                <div class="upload-text">上传音频识别语种（中文 / 英文 / 粤语）</div>
+                <div class="file-name" id="lidFileName"></div>
+                <input type="file" id="lidFileInput" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.pcm,.raw,audio/*" onchange="identifyAudioLanguage(event)">
+            </div>
+
             <div class="form-group">
                 <label class="form-label">识别结果</label>
                 <div id="asrResult" style="
@@ -512,15 +519,12 @@ function loadVoices() {
 function populateDefaultVoices() {
     var presets = [
         {id:'default',name:'Default',gender:'通用'},
-        {id:'charlotte',name:'Charlotte ♀温',gender:'女'},
-        {id:'ryan',name:'Ryan ♂温暖',gender:'男'},
-        {id:'ella',name:'Ella ♀年轻',gender:'女'},
-        {id:'daniel',name:'Daniel ♂沉稳',gender:'男'},
-        {id:'jamie',name:'Jamie 中性',gender:'中性'},
-        {id:'joanna',name:'Joanna ♀专业',gender:'女'},
-        {id:'lucy',name:'Lucy ♀清晰',gender:'女'},
-        {id:'fable',name:'Fable 叙事',gender:'叙事'},
-        {id:'onyx',name:'Onyx ♂深沉',gender:'男'},
+        {id:'chloe',name:'Chloe ♀ 友好清晰',gender:'女'},
+        {id:'eleanor',name:'Eleanor ♀ 冷静专业',gender:'女'},
+        {id:'jake',name:'Jake ♂ 活力激情',gender:'男'},
+        {id:'marcus',name:'Marcus ♂ 自信教授',gender:'男'},
+        {id:'nora',name:'Nora ♀ 冷静叙事',gender:'女'},
+        {id:'oliver',name:'Oliver ♂ 深思熟虑',gender:'男'},
     ];
     var grid = document.getElementById('voiceGrid');
     grid.innerHTML = '';
@@ -610,9 +614,9 @@ function renderFallbackTags() {
         {tag:'<|emotion:excitement|>',name:'兴奋'},
     ];
     var styles = [
-        {tag:'<|singing|歌唱|>',name:'歌唱'},
-        {tag:'<|shouting|喊叫/投射|>',name:'喊叫/投射'},
-        {tag:'<|whispering|耳语|>',name:'耳语'},
+        {tag:'<|style:singing|>',name:'歌唱',example:'<|style:singing|>啦啦啦，今天阳光很好。'},
+        {tag:'<|style:shouting|>',name:'喊叫/投射',example:'<|style:shouting|>大家请注意！'},
+        {tag:'<|style:whispering|>',name:'耳语',example:'<|style:whispering|>我悄悄告诉你一个秘密。'},
     ];
     var sfxs = [
         {tag:'<|sfx:laughter|>',name:'笑声'},
@@ -677,7 +681,7 @@ function insertTag(tag) {
 // ===== 清除所有标签选择 =====
 function clearAllTags() {
     var ta = document.getElementById('ttsText');
-    var tags = ta.value.match(/<\|[^|]+\|>/g);
+    var tags = ta.value.match(/<\|[^>]+\|>/g);
     if (tags) {
         tags.forEach(function(t) { ta.value = ta.value.replace(t, '').trim(); });
     }
@@ -986,6 +990,48 @@ function recognizeAudioFile(event) {
         updateResult('');
         addLog('文件识别失败: ' + e.message);
         alert('文件识别失败: ' + e.message);
+    }).finally(function() {
+        document.getElementById('recogBadge').className = 'badge badge-idle';
+        document.getElementById('recogBadge').textContent = '就绪';
+        event.target.value = '';
+    });
+}
+
+function identifyAudioLanguage(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('lidFileName').textContent = '已选: ' + file.name;
+    document.getElementById('recogBadge').className = 'badge badge-active';
+    document.getElementById('recogBadge').textContent = '识别语种';
+    addLog('上传音频识别语种: ' + file.name);
+    updateResult('正在识别音频语种，请稍候...');
+
+    var form = new FormData();
+    form.append('file', file);
+    form.append('language_type', 'mandenglcant');
+
+    fetch('/speech/api/asr/language', {
+        method: 'POST',
+        body: form
+    }).then(function(res) {
+        return res.json().then(function(data) {
+            if (!res.ok || data.status === 'error' || data.error) {
+                throw new Error(data.error || '语种识别失败');
+            }
+            return data;
+        });
+    }).then(function(data) {
+        var score = data.score === null || data.score === undefined ? '-' : data.score;
+        var text = '语种: ' + (data.language_name || '未识别') +
+            '\n代码: ' + (data.language || 'Empty') +
+            '\n置信度: ' + score +
+            '\n音频时长: ' + (data.duration_seconds || 0) + 's';
+        updateResult(text);
+        addLog('语种识别完成: ' + (data.language_name || data.language || '未识别') + ' · score=' + score);
+    }).catch(function(e) {
+        updateResult('');
+        addLog('语种识别失败: ' + e.message);
+        alert('语种识别失败: ' + e.message);
     }).finally(function() {
         document.getElementById('recogBadge').className = 'badge badge-idle';
         document.getElementById('recogBadge').textContent = '就绪';

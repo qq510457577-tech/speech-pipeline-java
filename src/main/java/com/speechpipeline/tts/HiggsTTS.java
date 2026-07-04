@@ -28,7 +28,7 @@ import java.util.Map;
 @Component
 public class HiggsTTS {
 
-    private static final String DEFAULT_MODEL = "higgs-audio-v3-tts";
+    private static final String DEFAULT_MODEL = "higgs-tts-3";
 
     @Value("${boson.api.key:}")
     private String apiKey;
@@ -66,6 +66,7 @@ public class HiggsTTS {
             log.warn("TTS 文本为空");
             return new byte[0];
         }
+        text = normalizeControlTags(text);
         if (!isConfigured()) {
             log.error("Boson API Key 未配置 (boson.api.key)");
             return new byte[0];
@@ -88,12 +89,12 @@ public class HiggsTTS {
                     Map<String, Object> body = new LinkedHashMap<>();
                     body.put("model", DEFAULT_MODEL);
                     body.put("input", text);
-                    body.put("voice", v);
                     body.put("response_format", fmt);
-                    // ref_audio / ref_text for zero-shot cloning (mutually exclusive with voice)
                     if (refAudio != null && !refAudio.isEmpty()) {
                         body.put("ref_audio", refAudio);
                         body.put("ref_text", refText != null ? refText : "");
+                    } else {
+                        body.put("voice", v);
                     }
 
                     Flux<DataBuffer> flux = webClient.post()
@@ -135,7 +136,7 @@ public class HiggsTTS {
             }
 
             if (audioBytes != null && audioBytes.length > 0) {
-                log.info("Higgs TTS 合成成功: voice={}, format={}, size={} bytes", v, fmt, audioBytes.length);
+                log.info("Higgs TTS 合成成功: model={}, voice={}, format={}, size={} bytes", DEFAULT_MODEL, v, fmt, audioBytes.length);
                 return audioBytes;
             } else {
                 log.error("Higgs TTS 返回空响应");
@@ -155,6 +156,16 @@ public class HiggsTTS {
         return synthesize(text, voice, speed, "mp3", null, null);
     }
 
+    private String normalizeControlTags(String text) {
+        return text
+                .replace("<|singing|歌唱|>", "<|style:singing|>")
+                .replace("<|shouting|喊叫/投射|>", "<|style:shouting|>")
+                .replace("<|whispering|耳语|>", "<|style:whispering|>")
+                .replace("<|singing|>", "<|style:singing|>")
+                .replace("<|shouting|>", "<|style:shouting|>")
+                .replace("<|whispering|>", "<|style:whispering|>");
+    }
+
     /**
      * 获取预设音色列表
      */
@@ -162,12 +173,12 @@ public class HiggsTTS {
         List<Map<String, String>> voices = new ArrayList<>();
         String[][] presets = {
             {"default", "Default (默认)", "通用默认音色"},
-            {"Chloe_Adams", "Chloe Adams", "女-友好清晰"},
-            {"Eleanor_Reed", "Eleanor Reed", "女-冷静专业"},
-            {"Jake_Rivers", "Jake Rivers", "男-活力激情"},
-            {"Marcus_Webb", "Marcus Webb", "男-自信教授"},
-            {"Nora_Vance", "Nora Vance", "女-冷静叙事"},
-            {"Oliver_Grant", "Oliver Grant", "男-深思熟虑"},
+            {"chloe", "Chloe", "女-友好清晰"},
+            {"eleanor", "Eleanor", "女-冷静专业"},
+            {"jake", "Jake", "男-活力激情"},
+            {"marcus", "Marcus", "男-自信教授"},
+            {"nora", "Nora", "女-冷静叙事"},
+            {"oliver", "Oliver", "男-深思熟虑"},
         };
         for (String[] v : presets) {
             Map<String, String> map = new LinkedHashMap<>();

@@ -98,6 +98,12 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
+      <groupId>com.alibaba.nls</groupId>
+      <artifactId>nls-sdk-request</artifactId>
+      <version>2.2.1</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
       <version>1.18.30</version>

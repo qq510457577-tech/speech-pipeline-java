@@ -1,6 +1,7 @@
 package com.speechpipeline.controller;
 
 import com.speechpipeline.asr.AliyunRealtimeASR;
+import com.speechpipeline.asr.AliyunLanguageIdentifier;
 import com.speechpipeline.asr.AsrSessionManager;
 import com.speechpipeline.config.AliConfig;
 import com.speechpipeline.config.NlsClientManager;
@@ -30,6 +31,7 @@ public class ApiController {
 
     private final AsrSessionManager sessionManager;
     private final HiggsTTS higgsTts;
+    private final AliyunLanguageIdentifier languageIdentifier;
     private final NlsClientManager nlsClientManager;
     private final AliConfig aliConfig;
 
@@ -37,6 +39,7 @@ public class ApiController {
         ".pcm", ".raw", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"
     );
     private static final int PCM_16K_MONO_BYTES_PER_SECOND = 16_000 * 2;
+    private static final int PCM_8K_MONO_BYTES_PER_SECOND = 8_000 * 2;
 
     private byte[] extractAudioBytes(Object audioValue) {
         if (audioValue == null) {
@@ -82,6 +85,14 @@ public class ApiController {
     }
 
     private byte[] loadAs16kPcm(Path inputPath, String ext) throws IOException, InterruptedException {
+        return loadAsPcm(inputPath, ext, 16000);
+    }
+
+    private byte[] loadAs8kPcm(Path inputPath, String ext) throws IOException, InterruptedException {
+        return loadAsPcm(inputPath, ext, 8000);
+    }
+
+    private byte[] loadAsPcm(Path inputPath, String ext, int sampleRate) throws IOException, InterruptedException {
         if (".pcm".equals(ext) || ".raw".equals(ext)) {
             return Files.readAllBytes(inputPath);
         }
@@ -91,7 +102,7 @@ public class ApiController {
             ProcessBuilder pb = new ProcessBuilder(
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                 "-i", inputPath.toString(),
-                "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", pcmPath.toString()
+                "-vn", "-ac", "1", "-ar", String.valueOf(sampleRate), "-f", "s16le", pcmPath.toString()
             );
             Process process = pb.redirectErrorStream(true).start();
             ByteArrayOutputStream ffmpegOutput = new ByteArrayOutputStream();
@@ -294,6 +305,64 @@ public class ApiController {
         }
     }
 
+    /**
+     * 文件上传语种识别
+     * POST /api/asr/language
+     * Body: multipart/form-data with 'file' part
+     */
+    @PostMapping("/asr/language")
+    public ResponseEntity<Map<String, Object>> identifyLanguage(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "mandenglcant") String language_type) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        try {
+            if (file.isEmpty()) {
+                result.put("error", "文件为空");
+                return ResponseEntity.badRequest().body(result);
+            }
+
+            String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload";
+            String ext = getExtension(originalName);
+            if (!SUPPORTED_ASR_EXTENSIONS.contains(ext)) {
+                result.put("error", "不支持的音频格式，支持: " + String.join(", ", SUPPORTED_ASR_EXTENSIONS));
+                result.put("filename", originalName);
+                return ResponseEntity.badRequest().body(result);
+            }
+
+            Path inputPath = Files.createTempFile("lid_upload_", ext);
+            try {
+                try (InputStream in = file.getInputStream()) {
+                    Files.copy(in, inputPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+                byte[] audioBytes = loadAs8kPcm(inputPath, ext);
+                if (audioBytes.length == 0) {
+                    result.put("error", "音频解码后为空");
+                    return ResponseEntity.badRequest().body(result);
+                }
+
+                Map<String, Object> identified = languageIdentifier.identify(audioBytes, language_type);
+                result.put("status", "ok");
+                result.putAll(identified);
+                result.put("filename", originalName);
+                result.put("filesize", file.getSize());
+                result.put("pcm_bytes", audioBytes.length);
+                result.put("duration_seconds", Math.round(audioBytes.length * 100.0 / PCM_8K_MONO_BYTES_PER_SECOND) / 100.0);
+            } finally {
+                Files.deleteIfExists(inputPath);
+            }
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            result.put("status", "error");
+            result.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(result);
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("error", "语种识别失败: " + e.getMessage());
+            log.error("语种识别失败: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(result);
+        }
+    }
+
     // ===== TTS =====
 
     /**
@@ -326,10 +395,10 @@ public class ApiController {
                 .header("X-TTS-Error", "text_too_long")
                 .body(("文本过长（最多5000字符），当前" + text.length() + "字符").getBytes());
         }
-        if (!format.matches("(mp3|wav|flac|opus)")) {
+        if (!format.matches("(mp3|wav|pcm|aac|flac|opus)")) {
             return ResponseEntity.badRequest()
                 .header("X-TTS-Error", "unsupported_format")
-                .body(("不支持的格式: " + format + "，支持: mp3, wav, flac, opus").getBytes());
+                .body(("不支持的格式: " + format + "，支持: mp3, wav, pcm, aac, flac, opus").getBytes());
         }
         try {
             // Handle ref_audio_file path -> read file content
@@ -355,6 +424,8 @@ public class ApiController {
             switch (format.toLowerCase()) {
                 case "mp3": contentType = "audio/mpeg"; break;
                 case "wav": contentType = "audio/wav"; break;
+                case "pcm": contentType = "audio/L16"; break;
+                case "aac": contentType = "audio/aac"; break;
                 case "flac": contentType = "audio/flac"; break;
                 case "opus": contentType = "audio/ogg"; break;
                 default: contentType = "audio/mpeg";
@@ -362,7 +433,7 @@ public class ApiController {
             return ResponseEntity.ok()
                 .header("Content-Type", contentType)
                 .header("X-Voice", voice != null ? voice : "default")
-                .header("X-Model", "higgs-audio-v3-tts")
+                .header("X-Model", "higgs-tts-3")
                 .header("X-Audio-Size", String.valueOf(audio.length))
                 .body(audio);
         } catch (Exception e) {
@@ -415,8 +486,9 @@ public class ApiController {
         };
         for (String[] s : styleData) {
             Map<String, String> m = new LinkedHashMap<>();
-            m.put("tag", "<|" + s[0] + "|" + s[1] + "|>");
+            m.put("tag", "<|style:" + s[0] + "|>");
             m.put("name", s[1]);
+            m.put("example", "<|style:" + s[0] + "|>" + s[1]);
             styles.add(m);
         }
         result.put("styles", styles);
@@ -465,7 +537,7 @@ public class ApiController {
         result.put("sessions", sessionManager.getActiveSessionCount());
         result.put("tts_status", higgsTts.isConfigured() ? "ready" : "unconfigured");
         result.put("tts_engine", "Higgs Audio v3 (Boson AI)");
-        result.put("services", Arrays.asList("ASR", "TTS-Higgs"));
+        result.put("services", Arrays.asList("ASR", "ASR-LID", "TTS-Higgs"));
         return ResponseEntity.ok(result);
     }
 
@@ -473,10 +545,11 @@ public class ApiController {
     public ResponseEntity<Map<String, Object>> status() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("service", "speech-pipeline-java");
-        result.put("version", "1.0.4");
+        result.put("version", "1.0.5");
         result.put("tts_engine", "Higgs Audio v3 (Boson AI)");
         result.put("features", Arrays.asList(
             "asr-stream", "asr-file", "asr-microphone",
+            "asr-language-identification",
             "tts", "tts-voices", "tts-tags", "tts-zero-shot",
             "tts-inline-tags", "websocket"
         ));
