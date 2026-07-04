@@ -164,9 +164,10 @@ public class AsrWebSocketHandler implements WebSocketHandler {
                 transcriber.setEnableIntermediateResult(true);
                 transcriber.setEnablePunctuation(true);
                 transcriber.setEnableITN(true);
-                transcriber.addCustomedParam("model", aliConfig.getAsrModel());
+                if (aliConfig.getAsrModel() != null && !aliConfig.getAsrModel().isBlank()) {
+                    transcriber.addCustomedParam("model", aliConfig.getAsrModel());
+                }
                 transcriber.addCustomedParam("returnSentenceLevel", true);
-                transcriber.addCustomedParam("route_group", "asr-EEND");
 
                 transcriber.start();
                 log.info("ASR 转写器已创建: {}", session.getId());
