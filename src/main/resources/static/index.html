@@ -401,6 +401,13 @@
 
             <canvas id="liveVisualizer"></canvas>
 
+            <div class="upload-area" onclick="document.getElementById('asrFileInput').click()" style="margin-bottom:1rem;">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">上传 MP3 / WAV / M4A 等音频识别文字</div>
+                <div class="file-name" id="asrFileName"></div>
+                <input type="file" id="asrFileInput" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.pcm,.raw,audio/*" onchange="recognizeAudioFile(event)">
+            </div>
+
             <div class="form-group">
                 <label class="form-label">识别结果</label>
                 <div id="asrResult" style="
@@ -948,6 +955,42 @@ function updateResult(text) {
     if (text) {
         panel.innerHTML = '<span style="font-size:0.95rem;line-height:1.8;">' + escapeHtml(text) + '</span>';
     }
+}
+
+function recognizeAudioFile(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('asrFileName').textContent = '已选: ' + file.name;
+    document.getElementById('recogBadge').className = 'badge badge-active';
+    document.getElementById('recogBadge').textContent = '识别中';
+    addLog('上传音频识别: ' + file.name);
+    updateResult('正在识别音频文件，请稍候...');
+
+    var form = new FormData();
+    form.append('file', file);
+
+    fetch('/speech/api/asr/file', {
+        method: 'POST',
+        body: form
+    }).then(function(res) {
+        return res.json().then(function(data) {
+            if (!res.ok || data.status === 'error' || data.error) {
+                throw new Error(data.error || '文件识别失败');
+            }
+            return data;
+        });
+    }).then(function(data) {
+        updateResult(data.text || '');
+        addLog('文件识别完成: ' + file.name + ' · ' + (data.duration_seconds || 0) + 's');
+    }).catch(function(e) {
+        updateResult('');
+        addLog('文件识别失败: ' + e.message);
+        alert('文件识别失败: ' + e.message);
+    }).finally(function() {
+        document.getElementById('recogBadge').className = 'badge badge-idle';
+        document.getElementById('recogBadge').textContent = '就绪';
+        event.target.value = '';
+    });
 }
 
 function stopRecognition() {

@@ -13,6 +13,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -29,6 +32,11 @@ public class ApiController {
     private final HiggsTTS higgsTts;
     private final NlsClientManager nlsClientManager;
     private final AliConfig aliConfig;
+
+    private static final Set<String> SUPPORTED_ASR_EXTENSIONS = Set.of(
+        ".pcm", ".raw", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"
+    );
+    private static final int PCM_16K_MONO_BYTES_PER_SECOND = 16_000 * 2;
 
     private byte[] extractAudioBytes(Object audioValue) {
         if (audioValue == null) {
@@ -63,6 +71,52 @@ public class ApiController {
             return bytes;
         }
         throw new IllegalArgumentException("audio 必须是 base64 字符串或字节数组");
+    }
+
+    private String getExtension(String filename) {
+        int dot = filename.lastIndexOf('.');
+        if (dot < 0 || dot == filename.length() - 1) {
+            return "";
+        }
+        return filename.substring(dot).toLowerCase(Locale.ROOT);
+    }
+
+    private byte[] loadAs16kPcm(Path inputPath, String ext) throws IOException, InterruptedException {
+        if (".pcm".equals(ext) || ".raw".equals(ext)) {
+            return Files.readAllBytes(inputPath);
+        }
+
+        Path pcmPath = Files.createTempFile("asr_", ".pcm");
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-i", inputPath.toString(),
+                "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", pcmPath.toString()
+            );
+            Process process = pb.redirectErrorStream(true).start();
+            ByteArrayOutputStream ffmpegOutput = new ByteArrayOutputStream();
+            try (InputStream in = process.getInputStream()) {
+                in.transferTo(ffmpegOutput);
+            }
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                String output = ffmpegOutput.toString(StandardCharsets.UTF_8);
+                throw new IOException("ffmpeg 转码失败: " + output.trim());
+            }
+            return Files.readAllBytes(pcmPath);
+        } finally {
+            Files.deleteIfExists(pcmPath);
+        }
+    }
+
+    private void streamPcmToAsr(AliyunRealtimeASR asr, byte[] audioBytes) throws InterruptedException {
+        int chunkSize = 3200; // 100ms of 16kHz 16-bit mono PCM
+        for (int i = 0; i < audioBytes.length; i += chunkSize) {
+            int end = Math.min(i + chunkSize, audioBytes.length);
+            byte[] chunk = Arrays.copyOfRange(audioBytes, i, end);
+            asr.sendAudio(chunk);
+            Thread.sleep(100);
+        }
     }
 
     // ===== ASR =====
@@ -182,34 +236,30 @@ public class ApiController {
                 return ResponseEntity.badRequest().body(result);
             }
 
-            String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload.pcm";
-            String lowerName = originalName.toLowerCase(Locale.ROOT);
-            if (!(lowerName.endsWith(".pcm") || lowerName.endsWith(".raw"))) {
-                result.put("error", "文件 ASR 当前只支持 16kHz/16-bit/mono PCM 原始音频（.pcm 或 .raw）");
+            String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload";
+            String ext = getExtension(originalName);
+            if (!SUPPORTED_ASR_EXTENSIONS.contains(ext)) {
+                result.put("error", "不支持的音频格式，支持: " + String.join(", ", SUPPORTED_ASR_EXTENSIONS));
                 result.put("filename", originalName);
                 return ResponseEntity.badRequest().body(result);
             }
 
-            // 保存临时文件
-            String tempDir = System.getProperty("java.io.tmpdir");
-            String ext = lowerName.endsWith(".raw") ? ".raw" : ".pcm";
-            String tempPath = tempDir + "/asr_" + System.currentTimeMillis() + ext;
-            file.transferTo(new File(tempPath));
-
+            Path inputPath = Files.createTempFile("asr_upload_", ext);
             AsrSessionManager.AsrSession tempSession = null;
             try {
-                byte[] audioBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(tempPath));
+                try (InputStream in = file.getInputStream()) {
+                    Files.copy(in, inputPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+                byte[] audioBytes = loadAs16kPcm(inputPath, ext);
+                if (audioBytes.length == 0) {
+                    result.put("error", "音频解码后为空");
+                    return ResponseEntity.badRequest().body(result);
+                }
 
                 tempSession = sessionManager.createSession();
                 AliyunRealtimeASR tempAsr = tempSession.getAsr();
 
-                // 分块发送音频数据（每次 4KB）
-                int chunkSize = 4096;
-                for (int i = 0; i < audioBytes.length; i += chunkSize) {
-                    int end = Math.min(i + chunkSize, audioBytes.length);
-                    byte[] chunk = Arrays.copyOfRange(audioBytes, i, end);
-                    tempAsr.sendAudio(chunk);
-                }
+                streamPcmToAsr(tempAsr, audioBytes);
                 
                 // 停止并等待结果
                 tempAsr.stop();
@@ -220,6 +270,8 @@ public class ApiController {
                 result.put("text", recognizedText != null ? recognizedText : "");
                 result.put("filename", originalName);
                 result.put("filesize", file.getSize());
+                result.put("pcm_bytes", audioBytes.length);
+                result.put("duration_seconds", Math.round(audioBytes.length * 100.0 / PCM_16K_MONO_BYTES_PER_SECOND) / 100.0);
                 result.put("model", model);
 
             } catch (Exception e) {
@@ -231,9 +283,8 @@ public class ApiController {
                 if (tempSession != null) {
                     sessionManager.removeSession(tempSession.getSessionId());
                 }
+                Files.deleteIfExists(inputPath);
             }
-
-            new File(tempPath).delete();
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
