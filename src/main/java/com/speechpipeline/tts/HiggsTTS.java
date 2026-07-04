@@ -33,12 +33,10 @@ public class HiggsTTS {
     @Value("${boson.api.key:}")
     private String apiKey;
 
-    @Value("${boson.api.timeout:30}")
-    private int timeoutSeconds;
-
     private final WebClient webClient;
 
-    public HiggsTTS(WebClient.Builder webClientBuilder) {
+    public HiggsTTS(WebClient.Builder webClientBuilder,
+                    @Value("${boson.api.timeout:30}") int timeoutSeconds) {
         HttpClient httpClient = HttpClient.create()
                 .responseTimeout(Duration.ofSeconds(timeoutSeconds));
         this.webClient = webClientBuilder

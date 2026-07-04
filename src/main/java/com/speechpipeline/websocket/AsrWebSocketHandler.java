@@ -5,10 +5,8 @@ import com.alibaba.nls.client.protocol.SampleRateEnum;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriber;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberListener;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberResponse;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.speechpipeline.config.AliConfig;
 import com.speechpipeline.config.NlsClientManager;
 import lombok.RequiredArgsConstructor;
@@ -232,10 +230,9 @@ public class AsrWebSocketHandler implements WebSocketHandler {
                 if (text != null && !text.isEmpty()) {
                     StringBuilder sb = CURRENT_TEXTS.get(session);
                     if (sb != null) {
-                        sb.setLength(0);
-                        sb.append(text);
+                        appendText(sb, text);
                         log.info("句子识别完成 [{}]: '{}'", response.getTransSentenceIndex(), text);
-                        sendJson(session, "sentence_end", text);
+                        sendJson(session, "sentence_end", sb.toString());
                     }
                 }
             }
@@ -246,9 +243,7 @@ public class AsrWebSocketHandler implements WebSocketHandler {
                 if (text != null && !text.isEmpty()) {
                     StringBuilder sb = CURRENT_TEXTS.get(session);
                     if (sb != null) {
-                        sb.setLength(0);
-                        sb.append(text);
-                        sendJson(session, "intermediate", text);
+                        sendJson(session, "intermediate", combineText(sb, text));
                     }
                 }
             }
@@ -304,5 +299,28 @@ public class AsrWebSocketHandler implements WebSocketHandler {
             }
         }
         CURRENT_TEXTS.remove(session);
+    }
+
+    private String combineText(StringBuilder finalizedText, String liveText) {
+        StringBuilder combined = new StringBuilder(finalizedText.toString());
+        appendText(combined, liveText);
+        return combined.toString();
+    }
+
+    private void appendText(StringBuilder sb, String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0 && !endsWithSentencePunctuation(sb)) {
+            sb.append(' ');
+        }
+        sb.append(text.trim());
+    }
+
+    private boolean endsWithSentencePunctuation(StringBuilder sb) {
+        char last = sb.charAt(sb.length() - 1);
+        return last == '。' || last == '！' || last == '？'
+                || last == '.' || last == '!' || last == '?'
+                || last == '，' || last == ',' || last == '；' || last == ';';
     }
 }

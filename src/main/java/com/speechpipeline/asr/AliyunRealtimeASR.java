@@ -34,6 +34,7 @@ public class AliyunRealtimeASR {
     private final List<String> intermediateResults = Collections.synchronizedList(new ArrayList<>());
     private final List<SentenceResult> sentences = Collections.synchronizedList(new ArrayList<>());
     private String fullText = "";
+    private String currentIntermediate = "";
     private String taskId;
 
     public record SentenceResult(int index, String text, int confidence, 
@@ -129,7 +130,9 @@ public class AliyunRealtimeASR {
      * 获取完整文本
      */
     public String getFullText() {
-        return fullText;
+        synchronized (this) {
+            return fullText;
+        }
     }
 
     /**
@@ -154,6 +157,7 @@ public class AliyunRealtimeASR {
             intermediateResults.clear();
             sentences.clear();
             fullText = "";
+            currentIntermediate = "";
             taskId = null;
             started.set(false);
             stopped.set(false);
@@ -204,8 +208,11 @@ public class AliyunRealtimeASR {
                 long endTime = response.getTransSentenceTime();
                 
                 if (text != null && !text.isEmpty()) {
-                    sentences.add(new SentenceResult(index, text, confidence, beginTime, endTime, 0));
-                    fullText = text;
+                    synchronized (AliyunRealtimeASR.this) {
+                        sentences.add(new SentenceResult(index, text, confidence, beginTime, endTime, 0));
+                        currentIntermediate = "";
+                        fullText = buildFullText(null);
+                    }
                     log.info("✅ 句子识别完成 [{}]: '{}' (置信度: {})", index, text, confidence);
                 }
             }
@@ -217,7 +224,10 @@ public class AliyunRealtimeASR {
                     synchronized (intermediateResults) {
                         intermediateResults.add(text);
                     }
-                    fullText = text;
+                    synchronized (AliyunRealtimeASR.this) {
+                        currentIntermediate = text;
+                        fullText = buildFullText(currentIntermediate);
+                    }
                     log.debug("📝 中间结果: '{}'", text);
                 }
             }
@@ -233,5 +243,33 @@ public class AliyunRealtimeASR {
                     response.getTaskId(), response.getStatus(), response.getStatusText());
             }
         };
+    }
+
+    private String buildFullText(String liveText) {
+        StringBuilder sb = new StringBuilder();
+        synchronized (sentences) {
+            for (SentenceResult sentence : sentences) {
+                appendText(sb, sentence.text());
+            }
+        }
+        appendText(sb, liveText);
+        return sb.toString();
+    }
+
+    private void appendText(StringBuilder sb, String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0 && !endsWithSentencePunctuation(sb)) {
+            sb.append(' ');
+        }
+        sb.append(text.trim());
+    }
+
+    private boolean endsWithSentencePunctuation(StringBuilder sb) {
+        char last = sb.charAt(sb.length() - 1);
+        return last == '。' || last == '！' || last == '？'
+                || last == '.' || last == '!' || last == '?'
+                || last == '，' || last == ',' || last == '；' || last == ';';
     }
 }

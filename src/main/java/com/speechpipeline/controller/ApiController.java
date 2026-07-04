@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api")
+@RequestMapping({"/api", "/speech/api"})
 @RequiredArgsConstructor
 public class ApiController {
 
@@ -182,24 +182,27 @@ public class ApiController {
                 return ResponseEntity.badRequest().body(result);
             }
 
+            String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload.pcm";
+            String lowerName = originalName.toLowerCase(Locale.ROOT);
+            if (!(lowerName.endsWith(".pcm") || lowerName.endsWith(".raw"))) {
+                result.put("error", "文件 ASR 当前只支持 16kHz/16-bit/mono PCM 原始音频（.pcm 或 .raw）");
+                result.put("filename", originalName);
+                return ResponseEntity.badRequest().body(result);
+            }
+
             // 保存临时文件
             String tempDir = System.getProperty("java.io.tmpdir");
-            String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload";
-            String ext = originalName.substring(originalName.lastIndexOf('.'));
+            String ext = lowerName.endsWith(".raw") ? ".raw" : ".pcm";
             String tempPath = tempDir + "/asr_" + System.currentTimeMillis() + ext;
             file.transferTo(new File(tempPath));
 
-                        // 通过读取音频文件转为 PCM 字节流，然后使用实时转写
+            AsrSessionManager.AsrSession tempSession = null;
             try {
                 byte[] audioBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(tempPath));
-                
-                // 创建临时 ASR 会话进行文件识别
-                AsrSessionManager.AsrSession tempSession = sessionManager.createSession();
+
+                tempSession = sessionManager.createSession();
                 AliyunRealtimeASR tempAsr = tempSession.getAsr();
-                
-                // 启动识别
-                tempAsr.start();
-                
+
                 // 分块发送音频数据（每次 4KB）
                 int chunkSize = 4096;
                 for (int i = 0; i < audioBytes.length; i += chunkSize) {
@@ -218,17 +221,18 @@ public class ApiController {
                 result.put("filename", originalName);
                 result.put("filesize", file.getSize());
                 result.put("model", model);
-                
-                tempSession.close();
 
             } catch (Exception e) {
                 log.error("文件识别失败: {}", e.getMessage());
                 result.put("status", "error");
                 result.put("text", "");
                 result.put("error", "文件识别失败: " + e.getMessage());
+            } finally {
+                if (tempSession != null) {
+                    sessionManager.removeSession(tempSession.getSessionId());
+                }
             }
 
-// 清理临时文件
             new File(tempPath).delete();
 
             return ResponseEntity.ok(result);
@@ -423,10 +427,9 @@ public class ApiController {
         result.put("features", Arrays.asList(
             "asr-stream", "asr-file", "asr-microphone",
             "tts", "tts-voices", "tts-tags", "tts-zero-shot",
-            "tts-inline-tags", "records", "websocket"
+            "tts-inline-tags", "websocket"
         ));
         result.put("active_sessions", sessionManager.getActiveSessionCount());
         return ResponseEntity.ok(result);
     }
 }
-

@@ -394,8 +394,8 @@
             </div>
 
             <div class="btn-group" style="margin-bottom:1rem;">
-                <button class="btn btn-primary" onclick="startRecognition()" id="btnStart">🎤 开始录音</button>
-                <button class="btn btn-danger" onclick="stopRecognition()" id="btnStop" disabled>⏹ 停止</button>
+                <button class="btn btn-primary" onclick="startRecognition()" id="btnStart">🎤 开始转写</button>
+                <button class="btn btn-danger" onclick="stopRecognition()" id="btnStop" disabled>⏹ 停止转写</button>
                 <button class="btn btn-outline" onclick="resetUI()">🗑️ 清空</button>
             </div>
 
@@ -429,7 +429,7 @@
 
 <script>
 // ===== 全局变量 =====
-var ws = null, mediaStream = null, audioCtx = null, scriptProcessor = null;
+var ws = null, mediaStream = null, audioCtx = null, micSource = null, scriptProcessor = null;
 var isRecording = false, isPlaying = false;
 var ttsAudioUrl = null, ttsAudioEl = null, ttsBlob = null;
 var selectedVoice = 'default';
@@ -835,10 +835,10 @@ function connectMicrophone() {
     }).then(function(stream) {
         mediaStream = stream;
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        var source = audioCtx.createMediaStreamSource(mediaStream);
+        micSource = audioCtx.createMediaStreamSource(mediaStream);
         var analyser = audioCtx.createAnalyser();
         analyser.fftSize = 256;
-        source.connect(analyser);
+        micSource.connect(analyser);
         drawVisualizer(analyser);
         return true;
     }).catch(function(e) {
@@ -880,13 +880,13 @@ function startRecognition() {
         document.getElementById('btnStart').disabled = true;
         document.getElementById('btnStop').disabled = false;
         document.getElementById('recogBadge').className = 'badge badge-active';
-        document.getElementById('recogBadge').textContent = '录音中';
-        addLog('开始录音...');
+        document.getElementById('recogBadge').textContent = '转写中';
+        addLog('开始实时转写...');
 
         scriptProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
         scriptProcessor.onaudioprocess = function(e) {
             var audioData = e.inputBuffer.getChannelData(0);
-            var int16 = float32ToInt16(audioData);
+            var int16 = resampleTo16kInt16(audioData, audioCtx.sampleRate);
             var base64 = arrayBufferToBase64(int16);
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ audio: base64 }));
@@ -902,6 +902,7 @@ function startRecognition() {
         ws.onerror = function() { addLog('WebSocket 错误'); stopRecognition(); };
         ws.onclose = function() { addLog('WebSocket 断开'); stopRecognition(); };
 
+        if (micSource) micSource.connect(scriptProcessor);
         scriptProcessor.connect(audioCtx.destination);
     });
 }
@@ -946,15 +947,24 @@ function updateResult(text) {
 
 function stopRecognition() {
     isRecording = false;
+    var closingWs = ws;
+    ws = null;
+    if (closingWs && closingWs.readyState === WebSocket.OPEN) {
+        try { closingWs.send(JSON.stringify({ stop: true })); } catch (e) {}
+        setTimeout(function() {
+            closingWs.onclose = null;
+            closingWs.close();
+        }, 300);
+    }
     if (scriptProcessor) { scriptProcessor.onaudioprocess = null; scriptProcessor.disconnect(); scriptProcessor = null; }
+    if (micSource) { micSource.disconnect(); micSource = null; }
     if (mediaStream) { mediaStream.getTracks().forEach(function(t){t.stop();}); mediaStream = null; }
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
-    if (ws) { ws.close(); ws = null; }
     document.getElementById('btnStart').disabled = false;
     document.getElementById('btnStop').disabled = true;
     document.getElementById('recogBadge').className = 'badge badge-idle';
     document.getElementById('recogBadge').textContent = '就绪';
-    addLog('已停止录音');
+    addLog('已停止实时转写');
 }
 
 function resetUI() {
@@ -970,6 +980,21 @@ function float32ToInt16(float32Array) {
         int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
     return int16Array;
+}
+
+function resampleTo16kInt16(float32Array, sourceRate) {
+    if (!sourceRate || sourceRate === 16000) return float32ToInt16(float32Array);
+    var ratio = sourceRate / 16000;
+    var newLength = Math.max(1, Math.round(float32Array.length / ratio));
+    var resampled = new Float32Array(newLength);
+    for (var i = 0; i < newLength; i++) {
+        var srcIndex = i * ratio;
+        var i0 = Math.floor(srcIndex);
+        var i1 = Math.min(i0 + 1, float32Array.length - 1);
+        var frac = srcIndex - i0;
+        resampled[i] = float32Array[i0] * (1 - frac) + float32Array[i1] * frac;
+    }
+    return float32ToInt16(resampled);
 }
 
 function arrayBufferToBase64(buffer) {
