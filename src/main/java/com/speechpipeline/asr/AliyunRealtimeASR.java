@@ -67,10 +67,6 @@ public class AliyunRealtimeASR {
                 transcriber.setEnablePunctuation(true);
                 transcriber.setEnableITN(true);
                 
-                if (aliConfig.getAsrModel() != null && !aliConfig.getAsrModel().isBlank()) {
-                    transcriber.addCustomedParam("model", aliConfig.getAsrModel());
-                }
-                
                 transcriber.start();
                 log.info("✅ ASR 实时转写启动成功");
                 return true;

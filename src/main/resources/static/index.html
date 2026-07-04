@@ -877,8 +877,15 @@ function drawVisualizer(analyser) {
 }
 
 function startRecognition() {
-    connectMicrophone().then(function(ok) {
-        if (!ok) return;
+    if (isRecording) return;
+
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/speech/ws/asr');
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function() {
+        addLog('WebSocket 已连接');
+        connectMicrophone().then(function(ok) {
+        if (!ok) { stopRecognition(); return; }
         isRecording = true;
         document.getElementById('btnStart').disabled = true;
         document.getElementById('btnStop').disabled = false;
@@ -896,18 +903,13 @@ function startRecognition() {
             enqueueAudio(int16);
         };
 
-        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(proto + '//' + location.host + '/speech/ws/asr');
-        ws.onopen = function() {
-            addLog('WebSocket 已连接');
-        };
-        ws.onmessage = function(e) { handleMessage(e.data); };
-        ws.onerror = function() { addLog('WebSocket 错误'); stopRecognition(); };
-        ws.onclose = function() { addLog('WebSocket 断开'); stopRecognition(); };
-
         if (micSource) micSource.connect(scriptProcessor);
         scriptProcessor.connect(audioCtx.destination);
-    });
+        });
+    };
+    ws.onmessage = function(e) { handleMessage(e.data); };
+    ws.onerror = function() { addLog('WebSocket 错误'); stopRecognition(); };
+    ws.onclose = function() { addLog('WebSocket 断开'); stopRecognition(); };
 }
 
 function handleMessage(dataStr) {
@@ -1019,7 +1021,7 @@ function flushAudio() {
         merged.set(chunk, offset);
         offset += chunk.length;
     });
-    ws.send(JSON.stringify({ audio: arrayBufferToBase64(merged) }));
+    ws.send(merged.buffer);
     audioSendBuffer = [];
     audioSendBufferLength = 0;
     sentAudioChunks++;
