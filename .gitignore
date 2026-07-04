@@ -1,0 +1,31 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Build outputs
+target/
+*.jar
+*.war
+*.ear
+
+# Compiled classes
+*.class
+
+# Backup files
+*.bak
+*.bak.*
+*.original
+
+# Logs and runtime files
+*.log
+nohup.out
+
+# Test artifacts
+test-results/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store

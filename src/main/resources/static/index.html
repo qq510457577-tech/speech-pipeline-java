@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Pipeline - Higgs Audio v3</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --bg-card: #1e293b;
+            --bg-input: #334155;
+            --border: #475569;
+            --text: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --green: #10b981;
+            --red: #ef4444;
+            --orange: #f59e0b;
+            --purple: #8b5cf6;
+            --radius: 12px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+        header { text-align: center; margin-bottom: 2.5rem; }
+        header h1 {
+            font-size: 2rem; font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        header p { color: var(--text-secondary); font-size: 0.95rem; }
+        .status-bar {
+            display: flex; justify-content: center; gap: 1.5rem;
+            margin-bottom: 2rem; flex-wrap: wrap;
+        }
+        .status-item {
+            display: flex; align-items: center; gap: 0.5rem;
+            background: var(--bg-card); padding: 0.5rem 1rem;
+            border-radius: 20px; font-size: 0.85rem;
+            border: 1px solid var(--border);
+        }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-dot.red { background: var(--red); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        /* Tab navigation */
+        .tab-bar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .tab-btn {
+            flex: 1; padding: 0.85rem 1.5rem; border: 1px solid var(--border);
+            border-radius: var(--radius); background: var(--bg-card);
+            color: var(--text-secondary); font-size: 1rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+        }
+        .tab-btn:hover { border-color: var(--accent); background: rgba(59,130,246,0.1); }
+        .tab-btn.active {
+            background: var(--accent); color: #fff;
+            border-color: var(--accent);
+            box-shadow: 0 0 12px rgba(59,130,246,0.4);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .card {
+            background: var(--bg-card); border-radius: var(--radius);
+            padding: 1.5rem; border: 1px solid var(--border);
+            box-shadow: var(--shadow); transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-2px); }
+        .card-title {
+            font-size: 1.1rem; font-weight: 600; margin-bottom: 1.25rem;
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .card-title .icon { font-size: 1.3rem; }
+        .form-group { margin-bottom: 1rem; }
+        .form-label {
+            display: block; font-size: 0.8rem; font-weight: 500;
+            color: var(--text-secondary); margin-bottom: 0.4rem;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .form-textarea, .form-input, .form-select {
+            width: 100%; padding: 0.75rem 1rem;
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text); font-size: 0.95rem;
+            font-family: inherit; transition: border-color 0.2s;
+        }
+        .form-textarea:focus, .form-input:focus, .form-select:focus {
+            outline: none; border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+        }
+        .form-textarea { resize: vertical; min-height: 100px; }
+        .form-select { cursor: pointer; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
+        .btn-group { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
+        .btn {
+            padding: 0.7rem 1.5rem; border: none; border-radius: 8px;
+            font-size: 0.9rem; font-weight: 500; cursor: pointer;
+            transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.5rem;
+            font-family: inherit;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+        .btn-danger { background: var(--red); color: white; }
+        .btn-danger:hover:not(:disabled) { background: #dc2626; }
+        .btn-outline {
+            background: transparent; color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+        .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.78rem; }
+        .player {
+            margin-top: 1rem; padding: 1rem;
+            background: rgba(59,130,246,0.08); border-radius: 8px;
+            border: 1px solid rgba(59,130,246,0.2); display: none;
+        }
+        .player.visible { display: block; }
+        .player-controls { display: flex; align-items: center; gap: 1rem; }
+        .play-btn {
+            width: 44px; height: 44px; border-radius: 50%;
+            background: var(--accent); border: none; color: white;
+            font-size: 1.2rem; cursor: pointer; display: flex;
+            align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        .play-btn:hover { background: var(--accent-hover); }
+        .progress-bar {
+            flex: 1; height: 6px; background: var(--bg-input);
+            border-radius: 3px; cursor: pointer; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; background: linear-gradient(90deg, var(--accent), var(--purple));
+            border-radius: 3px; width: 0%; transition: width 0.1s;
+        }
+        .player-info { font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
+        .status-msg { margin-top: 0.75rem; font-size: 0.85rem; }
+        .status-msg.success { color: var(--green); }
+        .status-msg.error { color: var(--red); }
+        .status-msg.loading { color: var(--orange); }
+        .voice-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 0.5rem; margin-top: 0.5rem;
+        }
+        .voice-chip {
+            padding: 0.4rem 0.75rem; background: var(--bg-input);
+            border: 1px solid var(--border); border-radius: 20px;
+            font-size: 0.8rem; cursor: pointer; transition: all 0.2s;
+            text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .voice-chip:hover { border-color: var(--accent); }
+        .voice-chip.active {
+            background: var(--accent); border-color: var(--accent);
+            color: white;
+        }
+        .voice-chip .preview-icon { display: none; margin-left: 2px; font-size: 0.7rem; }
+        .voice-chip:hover .preview-icon { display: inline; }
+        .tag-section { margin-bottom: 0.75rem; }
+        .tag-section-title {
+            font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);
+            margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem;
+        }
+        .tag-section-title .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .tag-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+        .tag-chip {
+            padding: 0.25rem 0.6rem; background: var(--bg-input);
+            border: 1px solid var(--border); border-radius: 14px;
+            font-size: 0.75rem; cursor: pointer; transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .tag-chip:hover { border-color: var(--accent); background: rgba(59,130,246,0.15); }
+        .tag-chip.emotion { border-color: rgba(239,68,68,0.4); }
+        .tag-chip.emotion:hover { background: rgba(239,68,68,0.15); border-color: var(--red); }
+        .tag-chip.style { border-color: rgba(139,92,246,0.4); }
+        .tag-chip.style:hover { background: rgba(139,92,246,0.15); border-color: var(--purple); }
+        .tag-chip.prosody { border-color: rgba(59,130,246,0.4); }
+        .tag-chip.prosody:hover { background: rgba(59,130,246,0.15); border-color: var(--accent); }
+        .tag-chip.sfx { border-color: rgba(245,158,11,0.4); }
+        .tag-chip.sfx:hover { background: rgba(245,158,11,0.15); border-color: var(--orange); }
+        .tag-chip.selected {
+            background: var(--accent) !important;
+            color: #fff !important;
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 6px rgba(59,130,246,0.4);
+        }
+        .tag-chip.emotion.selected { background: var(--red) !important; border-color: var(--red) !important; box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+        .tag-chip.style.selected { background: #8b5cf6 !important; border-color: #8b5cf6 !important; box-shadow: 0 0 6px rgba(139,92,246,0.4); }
+        .tag-chip.prosody.selected { background: var(--accent) !important; border-color: var(--accent) !important; box-shadow: 0 0 6px rgba(59,130,246,0.4); }
+        .tag-chip.sfx.selected { background: var(--orange) !important; border-color: var(--orange) !important; box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+        .clone-section {
+            margin-top: 1rem; padding: 1rem;
+            background: rgba(139,92,246,0.08); border-radius: 8px;
+            border: 1px solid rgba(139,92,246,0.2);
+        }
+        .clone-section .form-label { color: #c4b5fd; }
+        .log-panel {
+            max-height: 200px; overflow-y: auto; margin-top: 1rem;
+            background: rgba(0,0,0,0.2); border-radius: 8px; padding: 0.75rem;
+        }
+        .log-entry { font-size: 0.8rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .log-entry:last-child { border-bottom: none; }
+        .log-time { color: var(--text-secondary); margin-right: 0.5rem; }
+        canvas { width: 100%; height: 120px; border-radius: 8px; margin-top: 0.75rem; }
+        .badge {
+            display: inline-block; padding: 0.2rem 0.6rem;
+            border-radius: 12px; font-size: 0.75rem; font-weight: 500;
+        }
+        .badge-idle { background: var(--bg-input); color: var(--text-secondary); }
+        .badge-active { background: var(--green); color: white; }
+        footer {
+            text-align: center; margin-top: 2rem; padding: 1rem;
+            color: var(--text-secondary); font-size: 0.8rem;
+        }
+        .char-count { font-size: 0.75rem; color: var(--text-secondary); text-align: right; margin-top: 0.25rem; }
+        .char-count.warn { color: var(--orange); }
+        .char-count.error { color: var(--red); }
+        .tags-toggle {
+            font-size: 0.8rem; color: var(--accent); cursor: pointer;
+            margin-bottom: 0.5rem; display: inline-flex; align-items: center; gap: 0.3rem;
+        }
+        .tags-toggle:hover { text-decoration: underline; }
+        .tags-container { display: none; }
+        .tags-container.open { display: block; }
+        .upload-area {
+            border: 2px dashed var(--border); border-radius: 8px;
+            padding: 1rem; text-align: center; cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .upload-area:hover { border-color: var(--accent); }
+        .upload-area input[type="file"] { display: none; }
+        .upload-area .upload-text { font-size: 0.85rem; color: var(--text-secondary); }
+        .upload-area .file-name { font-size: 0.8rem; color: var(--green); margin-top: 0.3rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Speech Pipeline</h1>
+        <p>Higgs Audio v3 语音合成 · 阿里云实时语音识别</p>
+    </header>
+
+    <div class="status-bar" id="statusBar">
+        <div class="status-item">
+            <div class="status-dot" id="asrDot"></div>
+            <span>ASR: <span id="asrStatusText">检测中...</span></span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot" id="ttsDot"></div>
+            <span>TTS: <span id="ttsStatusText">检测中...</span></span>
+        </div>
+        <div class="status-item">
+            <span>音色: <span id="voiceCount">-</span></span>
+        </div>
+    </div>
+
+    <!-- Tab 导航 -->
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('tts')" id="ttsTabBtn">
+            <span>🔊</span> 语音合成 (TTS)
+        </button>
+        <button class="tab-btn" onclick="switchTab('asr')" id="asrTabBtn">
+            <span>🎧</span> 实时语音识别 (ASR)
+        </button>
+    </div>
+
+    <!-- ===== TTS 语音合成 ===== -->
+    <div class="tab-content active" id="ttsTab">
+        <div class="card">
+            <div class="card-title"><span class="icon">🔊</span>语音合成 (TTS)</div>
+
+            <div class="form-group">
+                <label class="form-label">合成文本</label>
+                <textarea class="form-textarea" id="ttsText" placeholder="输入要合成的文本..."
+                    oninput="updateCharCount()">你好，欢迎使用语音管线服务。</textarea>
+                <div class="char-count" id="charCount">0 / 5000</div>
+            </div>
+
+            <!-- 标签控制区 -->
+            <div class="tags-toggle" onclick="toggleTags()">
+                <span id="tagsToggleIcon">▶</span> 插入控制标签 &nbsp;<button class="btn btn-outline" style="padding:0.15rem 0.5rem;font-size:0.7rem;float:right;" onclick="clearAllTags()" title="清除所有已选标签">清除选择</button>
+            </div>
+            <div class="tags-container" id="tagsContainer">
+                <div class="tag-section">
+                    <div class="tag-section-title"><span class="dot" style="background:var(--red)"></span>情绪 emotion</div>
+                    <div class="tag-chips" id="emotionTags"></div>
+                </div>
+                <div class="tag-section">
+                    <div class="tag-section-title"><span class="dot" style="background:var(--purple)"></span>风格 style</div>
+                    <div class="tag-chips" id="styleTags"></div>
+                </div>
+                <div class="tag-section">
+                    <div class="tag-section-title"><span class="dot" style="background:var(--accent)"></span>韵律 prosody</div>
+                    <div class="tag-chips" id="prosodyTags"></div>
+                </div>
+                <div class="tag-section">
+                    <div class="tag-section-title"><span class="dot" style="background:var(--orange)"></span>音效 sfx</div>
+                    <div class="tag-chips" id="sfxTags"></div>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top:0.75rem;">
+                <label class="form-label">音色选择</label>
+                <div class="voice-grid" id="voiceGrid"></div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">输出格式</label>
+                    <select class="form-select" id="ttsFormat">
+                        <option value="mp3" selected>MP3 (通用)</option>
+                        <option value="wav">WAV (无损)</option>
+                        <option value="pcm">PCM (原始)</option>
+                        <option value="aac">AAC (压缩)</option>
+                        <option value="flac">FLAC (无损压缩)</option>
+                        <option value="opus">Opus (低带宽)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">示例文本</label>
+                    <select class="form-select" onchange="document.getElementById('ttsText').value=this.value;updateCharCount()">
+                        <option value="">选择示例...</option>
+                        <optgroup label="━━━ 官方预设音色 ━━━">
+                            <option value="<|emotion:amusement|>Hi, I'm Chloe Adams! <|emotion:enthusiasm|>I love showing you the little tricks that make everything click so much faster. <|prosody:pause|> Ready? Let's jump right in and make this easy and fun.">Chloe ♀ 友好清晰</option>
+                            <option value="<|emotion:contentment|>Hello, I'm Eleanor Reed. I love making tricky ideas feel simple and easy to follow. <|prosody:speed_slow|>We'll take it one step at a time, no rushing. <|emotion:awe|>And honestly, there's something wonderful about the moment when it all clicks.">Eleanor ♀ 冷静专业</option>
+                            <option value="<|emotion:enthusiasm|>What's up, I'm Jake Rivers! <|emotion:elation|>I live for the big moments, the buzzer-beaters, the comebacks, the whole roller coaster. <|sfx:laughter|>Haha, win or lose, I'm all in, and trust me, I bring the energy every single time!">Jake ♂ 活力激情</option>
+                            <option value="<|emotion:enthusiasm|>Hello, I'm Marcus Webb, and I genuinely get excited about ideas. <|emotion:elation|>Give me any topic and I'll happily walk you through it like it's the most fascinating thing in the world. <|sfx:laughter|>Haha, fair warning, I do tend to ramble when something's interesting!">Marcus ♂ 自信教授</option>
+                            <option value="<|emotion:contentment|>Hi there, I'm Nora Vance. I have a soft spot for stories <|prosody:pause|> the kind that pull you in slowly. <|prosody:speed_slow|>So settle in, and let me paint you a little picture of wherever we're headed.">Nora ♀ 冷静叙事</option>
+                            <option value="<|emotion:contemplation|>Hi, I'm Oliver Grant. I tend to think out loud, slowly working my way toward what really matters. <|prosody:pause|> Self-awareness, meaning, the quiet questions, that's where I like to linger. <|emotion:contentment|>Pull up a chair and let's reflect together.">Oliver ♂ 深思熟虑</option>
+                        </optgroup>
+                        <optgroup label="━━━ 自定义示例 ━━━">
+                            <option value="你好，欢迎使用语音管线服务。">中文问候</option>
+                            <option value="今天天气真好，适合出去散步。">日常对话</option>
+                            <option value="<|emotion:happiness|>今天真是美好的一天！">开心情绪</option>
+                            <option value="<|emotion:sadness|>为什么美好的事物总是短暂...">悲伤情绪</option>
+                            <option value="<|style:whispering|>嘘，小声一点，别让人发现。">耳语风格</option>
+                            <option value="<|sfx:laughter|>哈哈，这个笑话太有趣了！">加入笑声</option>
+                        </optgroup>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 零样本克隆 -->
+            <div class="clone-section">
+                <div class="form-label" style="color:#c4b5fd;">🎙️ 零样本音色克隆</div>
+                <div class="upload-area" id="cloneUploadArea" onclick="document.getElementById('cloneFileInput').click()">
+                    <div class="upload-text">点击上传参考音频 (WAV/MP3/M4A)，并输入对应文本</div>
+                    <div class="file-name" id="cloneFileName"></div>
+                    <input type="file" id="cloneFileInput" accept=".wav,.mp3,.m4a,.ogg,.flac,audio/*" onchange="handleCloneFile(event)">
+                </div>
+                <div class="form-group" style="margin-top:0.5rem;">
+                    <input class="form-input" id="cloneRefText" placeholder="参考音频的文本转录..." style="font-size:0.85rem;">
+                </div>
+                <div id="cloneStatus" style="font-size:0.8rem;"></div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="synthesize()" id="btnSynth">✨ 开始合成</button>
+            </div>
+
+            <div class="status-msg" id="ttsStatus"></div>
+
+            <div class="player" id="ttsPlayer">
+                <div class="player-controls">
+                    <button class="play-btn" id="playBtn" onclick="togglePlayback()">▶</button>
+                    <div class="progress-bar" id="progressBar" onclick="seekAudio(event)">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <span class="player-info" id="ttsInfo">—</span>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+                    <button class="btn btn-outline btn-sm" style="flex:1;" onclick="downloadAudio()">💾 下载音频</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ASR 语音识别 ===== -->
+    <div class="tab-content" id="asrTab">
+        <div class="card">
+            <div class="card-title"><span class="icon">🎧</span>实时语音识别</div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <span style="font-size:0.85rem;color:var(--text-secondary);">阿里云 linglong 模型</span>
+                <span class="badge badge-idle" id="recogBadge">就绪</span>
+            </div>
+
+            <div class="btn-group" style="margin-bottom:1rem;">
+                <button class="btn btn-primary" onclick="startRecognition()" id="btnStart">🎤 开始录音</button>
+                <button class="btn btn-danger" onclick="stopRecognition()" id="btnStop" disabled>⏹ 停止</button>
+                <button class="btn btn-outline" onclick="resetUI()">🗑️ 清空</button>
+            </div>
+
+            <canvas id="liveVisualizer"></canvas>
+
+            <div class="form-group">
+                <label class="form-label">识别结果</label>
+                <div id="asrResult" style="
+                    background: var(--bg-input); border-radius: 8px; padding: 1rem;
+                    min-height: 80px; max-height: 200px; overflow-y: auto;
+                    border: 1px solid var(--border);
+                ">
+                    <span style="color:var(--text-secondary);font-size:0.85rem;">点击「开始」并说话，文字将实时显示在这里</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">操作</label>
+                <div class="btn-group">
+                    <button class="btn btn-outline" onclick="copyResult()">📋 复制</button>
+                    <button class="btn btn-outline" onclick="useAsTtsSource()">🔁 用作TTS</button>
+                </div>
+            </div>
+
+            <div class="log-panel" id="mainLog"></div>
+        </div>
+    </div>
+
+    <footer>Speech Pipeline v3.0 · Higgs Audio v3 + Alibaba Cloud ASR</footer>
+</div>
+
+<script>
+// ===== 全局变量 =====
+var ws = null, mediaStream = null, audioCtx = null, scriptProcessor = null;
+var isRecording = false, isPlaying = false;
+var ttsAudioUrl = null, ttsAudioEl = null, ttsBlob = null;
+var selectedVoice = 'default';
+var cloneFileBase64 = null;
+var allTags = {};
+
+// ===== Tab 切换 =====
+function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
+    document.getElementById(tab + 'Tab').classList.add('active');
+    document.getElementById(tab + 'TabBtn').classList.add('active');
+}
+
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', function() {
+    initVisualizer();
+    checkHealth();
+    loadVoices();
+    loadTags();
+});
+
+// ===== 健康检查 =====
+function checkHealth() {
+    fetch('/speech/api/health').then(function(r){ return r.json(); }).then(function(data) {
+        if (data.tts_status === 'ready') {
+            document.getElementById('ttsDot').className = 'status-dot green';
+            document.getElementById('ttsStatusText').textContent = '就绪';
+        } else {
+            document.getElementById('ttsDot').className = 'status-dot red';
+            document.getElementById('ttsStatusText').textContent = '未配置';
+        }
+        if (data.services && data.services.includes('ASR')) {
+            document.getElementById('asrDot').className = 'status-dot green';
+            document.getElementById('asrStatusText').textContent = '就绪';
+        } else {
+            document.getElementById('asrDot').className = 'status-dot red';
+            document.getElementById('asrStatusText').textContent = '未配置';
+        }
+    }).catch(function() {
+        document.getElementById('ttsStatusText').textContent = '离线';
+        document.getElementById('asrStatusText').textContent = '离线';
+    });
+}
+
+// ===== 加载音色列表 =====
+function loadVoices() {
+    fetch('/speech/api/tts/voices').then(function(r){ return r.json(); }).then(function(data) {
+        var voices = data.preset_voices || [];
+        document.getElementById('voiceCount').textContent = voices.length + '+';
+        var grid = document.getElementById('voiceGrid');
+        grid.innerHTML = '';
+        voices.forEach(function(v) {
+            var chip = document.createElement('div');
+            chip.className = 'voice-chip' + (v.id === 'default' ? ' active' : '');
+            chip.dataset.voice = v.id;
+            chip.onclick = function() { selectVoice(this); };
+            // 尝试用浏览器 TTS 预览
+            var gender = (v.gender || '').match(/♂|男/) ? 'male' : 'female';
+            chip.innerHTML = v.name + ' <span class="preview-icon" onclick="event.stopPropagation();previewVoice(\'' + v.id + '\')">🔊</span>';
+            grid.appendChild(chip);
+        });
+        if (voices.length > 0) selectedVoice = voices[0].id;
+    }).catch(function() {
+        // 回退到硬编码列表
+        populateDefaultVoices();
+    });
+}
+
+function populateDefaultVoices() {
+    var presets = [
+        {id:'default',name:'Default',gender:'通用'},
+        {id:'charlotte',name:'Charlotte ♀温',gender:'女'},
+        {id:'ryan',name:'Ryan ♂温暖',gender:'男'},
+        {id:'ella',name:'Ella ♀年轻',gender:'女'},
+        {id:'daniel',name:'Daniel ♂沉稳',gender:'男'},
+        {id:'jamie',name:'Jamie 中性',gender:'中性'},
+        {id:'joanna',name:'Joanna ♀专业',gender:'女'},
+        {id:'lucy',name:'Lucy ♀清晰',gender:'女'},
+        {id:'fable',name:'Fable 叙事',gender:'叙事'},
+        {id:'onyx',name:'Onyx ♂深沉',gender:'男'},
+    ];
+    var grid = document.getElementById('voiceGrid');
+    grid.innerHTML = '';
+    presets.forEach(function(v) {
+        var chip = document.createElement('div');
+        chip.className = 'voice-chip' + (v.id === 'default' ? ' active' : '');
+        chip.dataset.voice = v.id;
+        chip.onclick = function() { selectVoice(this); };
+        chip.textContent = v.name;
+        grid.appendChild(chip);
+    });
+    selectedVoice = 'default';
+}
+
+// ===== 音色预览 =====
+function previewVoice(voiceId) {
+    setStatus('ttsStatus', '正在预览: ' + voiceId + '...', 'loading');
+    var previewText = '这是一段音色预览。';
+    fetch('/speech/api/tts/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: previewText, voice: voiceId, response_format: 'mp3' })
+    }).then(function(res) {
+        if (!res.ok) throw new Error('预览失败');
+        return res.blob();
+    }).then(function(blob) {
+        if (ttsAudioUrl) URL.revokeObjectURL(ttsAudioUrl);
+        ttsAudioUrl = URL.createObjectURL(blob);
+        if (ttsAudioEl) ttsAudioEl.pause();
+        ttsAudioEl = new Audio(ttsAudioUrl);
+        ttsAudioEl.play().then(function() {
+            setStatus('ttsStatus', '预览播放中: ' + voiceId, 'success');
+            ttsAudioEl.addEventListener('ended', function() {
+                setStatus('ttsStatus', '预览完成', 'success');
+            });
+        }).catch(function(e) {
+            setStatus('ttsStatus', '播放失败: ' + e.message, 'error');
+        });
+    }).catch(function(e) {
+        setStatus('ttsStatus', '预览失败: ' + e.message, 'error');
+    });
+}
+
+// ===== 音色选择 =====
+function selectVoice(el) {
+    var chips = document.querySelectorAll('.voice-chip');
+    for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
+    el.classList.add('active');
+    selectedVoice = el.dataset.voice;
+}
+
+// ===== 标签加载 =====
+function loadTags() {
+    fetch('/speech/api/tts/tags').then(function(r){ return r.json(); }).then(function(data) {
+        allTags = data;
+        renderTagSection('emotions', 'emotionTags', 'emotion');
+        renderTagSection('styles', 'styleTags', 'style');
+        renderTagSection('prosody', 'prosodyTags', 'prosody');
+        renderTagSection('sfx', 'sfxTags', 'sfx');
+    }).catch(function() {
+        // 回退到硬编码标签
+        renderFallbackTags();
+    });
+}
+
+function renderTagSection(key, containerId, cssClass) {
+    var tags = allTags[key] || [];
+    var container = document.getElementById(containerId);
+    container.innerHTML = '';
+    tags.forEach(function(t) {
+        var chip = document.createElement('div');
+        chip.className = 'tag-chip ' + cssClass;
+        chip.textContent = t.tag || t.effect || '';
+        chip.title = (t.name || t.effect || '') + '\n\n' + (t.example || t.tag || '');
+        chip.onclick = function() { insertTag(t.tag || ''); };
+        container.appendChild(chip);
+    });
+}
+
+function renderFallbackTags() {
+    var emotions = [
+        {tag:'<|emotion:happiness|>',name:'开心',example:'<|emotion:happiness|>今天真开心'},
+        {tag:'<|emotion:sadness|>',name:'悲伤'},
+        {tag:'<|emotion:anger|>',name:'愤怒'},
+        {tag:'<|emotion:fear|>',name:'恐惧'},
+        {tag:'<|emotion:calmness|>',name:'平静'},
+        {tag:'<|emotion:excitement|>',name:'兴奋'},
+    ];
+    var styles = [
+        {tag:'<|singing|歌唱|>',name:'歌唱'},
+        {tag:'<|shouting|喊叫/投射|>',name:'喊叫/投射'},
+        {tag:'<|whispering|耳语|>',name:'耳语'},
+    ];
+    var sfxs = [
+        {tag:'<|sfx:laughter|>',name:'笑声'},
+        {tag:'<|sfx:crying|>',name:'哭泣'},
+        {tag:'<|sfx:cough|>',name:'咳嗽'},
+        {tag:'<|sfx:sigh|>',name:'叹气'},
+    ];
+    var prosodies = [
+        {tag:'<|prosody:speed_slow|>',effect:'~0.85×'},
+        {tag:'<|prosody:speed_fast|>',effect:'~1.2×'},
+        {tag:'<|prosody:pause|>',effect:'停顿'},
+    ];
+    renderTagSectionFromData(emotions, 'emotionTags', 'emotion', 'tag','name','example');
+    renderTagSectionFromData(styles, 'styleTags', 'style', 'tag','name','example');
+    renderTagSectionFromData(sfxs, 'sfxTags', 'sfx', 'tag','name','example');
+    renderTagSectionFromData(prosodies, 'prosodyTags', 'prosody', 'tag','effect','example');
+}
+
+function renderTagSectionFromData(tags, containerId, cssClass, tagKey, nameKey, exampleKey) {
+    var container = document.getElementById(containerId);
+    container.innerHTML = '';
+    tags.forEach(function(t) {
+        var chip = document.createElement('div');
+        chip.className = 'tag-chip ' + cssClass;
+        chip.textContent = t[tagKey] || '';
+        chip.title = (t[nameKey] || '') + '\n\n' + (t[exampleKey] || '');
+        chip.onclick = function() { insertTag(t[tagKey] || ''); };
+        container.appendChild(chip);
+    });
+}
+
+function toggleTags() {
+    var c = document.getElementById('tagsContainer');
+    var icon = document.getElementById('tagsToggleIcon');
+    if (c.classList.contains('open')) {
+        c.classList.remove('open');
+        icon.textContent = '▶';
+    } else {
+        c.classList.add('open');
+        icon.textContent = '▼';
+    }
+}
+
+function insertTag(tag) {
+    var ta = document.getElementById('ttsText');
+    var pos = ta.selectionStart;
+    var text = ta.value;
+    ta.value = text.substring(0, pos) + tag + text.substring(pos);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = pos + tag.length;
+    updateCharCount();
+    addLog('插入标签: ' + tag);
+    // Toggle selected state on clicked chip
+    var chips = document.querySelectorAll('.tag-chip');
+    chips.forEach(function(chip) {
+        if (chip.textContent === tag) {
+            chip.classList.toggle('selected');
+        }
+    });
+}
+
+// ===== 清除所有标签选择 =====
+function clearAllTags() {
+    var ta = document.getElementById('ttsText');
+    var tags = ta.value.match(/<\|[^|]+\|>/g);
+    if (tags) {
+        tags.forEach(function(t) { ta.value = ta.value.replace(t, '').trim(); });
+    }
+    document.querySelectorAll('.tag-chip.selected').forEach(function(c) { c.classList.remove('selected'); });
+    updateCharCount();
+    addLog('已清除所有标签');
+}
+
+// ===== 字符计数 =====
+function updateCharCount() {
+    var text = document.getElementById('ttsText').value;
+    var len = text.length;
+    var el = document.getElementById('charCount');
+    el.textContent = len + ' / 5000';
+    el.className = 'char-count';
+    if (len > 4500) el.className += ' warn';
+    if (len >= 5000) el.className += ' error';
+}
+
+// ===== TTS 合成 =====
+function synthesize() {
+    var text = document.getElementById('ttsText').value.trim();
+    var format = document.getElementById('ttsFormat').value;
+    if (!text) { setStatus('ttsStatus', '请输入文本', 'error'); return; }
+    if (text.length > 5000) { setStatus('ttsStatus', '文本过长（最多5000字）', 'error'); return; }
+
+    var body = {
+        text: text,
+        voice: selectedVoice,
+        response_format: format
+    };
+
+    // 如果有克隆音频，附加到请求
+    if (cloneFileBase64) {
+        body.ref_audio = cloneFileBase64;
+        body.ref_text = document.getElementById('cloneRefText').value.trim();
+        if (!body.ref_text) {
+            setStatus('ttsStatus', '请提供参考音频的文本转录', 'error');
+            return;
+        }
+    }
+
+    var btn = document.getElementById('btnSynth');
+    btn.disabled = true;
+    btn.textContent = '⏳ 合成中...';
+    setStatus('ttsStatus', '正在合成...', 'loading');
+    document.getElementById('ttsPlayer').classList.remove('visible');
+
+    fetch('/speech/api/tts/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    }).then(function(res) {
+        if (!res.ok) return res.text().then(function(err){ throw new Error(err); });
+        return res.blob();
+    }).then(function(blob) {
+        ttsBlob = blob;
+        var sizeKB = (blob.size / 1024).toFixed(1);
+        // Log the actual text with tags for debugging
+        var sentText = document.getElementById('ttsText').value.trim();
+        var tagCount = (sentText.match(/<\|[^|]+\|>/g) || []).length;
+        addLog('合成文本(' + sentText.length + '字, ' + tagCount + '个标签): ' + sentText.substring(0, 100) + (sentText.length > 100 ? '...' : ''));
+        setStatus('ttsStatus', '合成成功 (' + sizeKB + ' KB)', 'success');
+
+        if (ttsAudioUrl) URL.revokeObjectURL(ttsAudioUrl);
+        ttsAudioUrl = URL.createObjectURL(blob);
+        if (ttsAudioEl) ttsAudioEl.pause();
+        ttsAudioEl = new Audio(ttsAudioUrl);
+        ttsAudioEl.addEventListener('ended', function() {
+            isPlaying = false;
+            document.getElementById('playBtn').textContent = '▶';
+            document.getElementById('progressFill').style.width = '0%';
+        });
+
+        document.getElementById('ttsPlayer').classList.add('visible');
+        document.getElementById('playBtn').textContent = '▶';
+        document.getElementById('progressFill').style.width = '0%';
+        document.getElementById('ttsInfo').textContent = selectedVoice + ' · ' + format.toUpperCase() + ' · ' + sizeKB + 'KB';
+        addLog('TTS合成: ' + selectedVoice + '/' + format + ' ' + sizeKB + 'KB');
+    }).catch(function(e) {
+        setStatus('ttsStatus', '失败: ' + e.message, 'error');
+        addLog('TTS失败: ' + e.message);
+    }).finally(function() {
+        btn.disabled = false;
+        btn.textContent = '\u2728 开始合成';
+    });
+}
+
+// ===== 播放控制 =====
+function togglePlayback() {
+    if (!ttsAudioEl) return;
+    if (isPlaying) { ttsAudioEl.pause(); isPlaying = false; document.getElementById('playBtn').textContent = '▶'; }
+    else { ttsAudioEl.play().then(function(){ isPlaying = true; document.getElementById('playBtn').textContent = '⏸'; }).catch(function(){}); }
+}
+
+function updateProgress() {
+    if (!ttsAudioEl || !ttsAudioEl.duration) return;
+    document.getElementById('progressFill').style.width = (ttsAudioEl.currentTime / ttsAudioEl.duration * 100) + '%';
+}
+setInterval(updateProgress, 100);
+
+function seekAudio(e) {
+    if (!ttsAudioEl || !ttsAudioEl.duration) return;
+    var rect = e.currentTarget.getBoundingClientRect();
+    var pct = (e.clientX - rect.left) / rect.width;
+    ttsAudioEl.currentTime = pct * ttsAudioEl.duration;
+}
+
+function downloadAudio() {
+    if (!ttsBlob) return;
+    var format = document.getElementById('ttsFormat').value;
+    var ext = format === 'mp3' ? 'mp3' : format === 'wav' ? 'wav' : format === 'flac' ? 'flac' : format === 'aac' ? 'm4a' : format === 'opus' ? 'opus' : 'pcm';
+    var a = document.createElement('a');
+    a.href = ttsAudioUrl;
+    a.download = 'tts_' + selectedVoice + '_' + Date.now() + '.' + ext;
+    a.click();
+    addLog('下载音频: ' + a.download);
+}
+
+// ===== 零样本克隆文件处理 =====
+function handleCloneFile(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('cloneFileName').textContent = '已选: ' + file.name;
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        // 转为 base64 data URI
+        cloneFileBase64 = e.target.result;
+        document.getElementById('cloneStatus').innerHTML = '<span style="color:var(--green)">✓ 参考音频已加载</span>';
+        addLog('克隆参考音频: ' + file.name);
+    };
+    reader.readAsDataURL(file);
+}
+
+// ===== ASR 语音识别 =====
+function initVisualizer() {
+    var canvas = document.getElementById('liveVisualizer');
+    var ctx = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth * 2;
+    canvas.height = 240;
+    ctx.fillStyle = 'rgba(51,65,85,0.3)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height / 2);
+    ctx.lineTo(canvas.width, canvas.height / 2);
+    ctx.stroke();
+    window._drawIdle = function() {
+        ctx.fillStyle = 'rgba(51,65,85,0.3)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height / 2);
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+    };
+}
+
+function connectMicrophone() {
+    return navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    }).then(function(stream) {
+        mediaStream = stream;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var source = audioCtx.createMediaStreamSource(mediaStream);
+        var analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        drawVisualizer(analyser);
+        return true;
+    }).catch(function(e) {
+        alert('无法访问麦克风: ' + e.message);
+        return false;
+    });
+}
+
+function drawVisualizer(analyser) {
+    var canvas = document.getElementById('liveVisualizer');
+    var ctx = canvas.getContext('2d');
+    var bufLen = analyser.frequencyBinCount;
+    var data = new Uint8Array(bufLen);
+
+    function draw() {
+        if (!isRecording) { if (window._drawIdle) window._drawIdle(); return; }
+        requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(data);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.3)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        var barW = (canvas.width / bufLen) * 2.5;
+        var x = 0;
+        for (var i = 0; i < bufLen; i++) {
+            var v = data[i] / 255;
+            var barH = v * canvas.height;
+            var hue = 210 + v * 60;
+            ctx.fillStyle = 'hsl(' + hue + ', 80%, ' + (50 + v * 30) + '%)';
+            ctx.fillRect(x, canvas.height - barH, barW, barH);
+            x += barW + 1;
+        }
+    }
+    draw();
+}
+
+function startRecognition() {
+    connectMicrophone().then(function(ok) {
+        if (!ok) return;
+        isRecording = true;
+        document.getElementById('btnStart').disabled = true;
+        document.getElementById('btnStop').disabled = false;
+        document.getElementById('recogBadge').className = 'badge badge-active';
+        document.getElementById('recogBadge').textContent = '录音中';
+        addLog('开始录音...');
+
+        scriptProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
+        scriptProcessor.onaudioprocess = function(e) {
+            var audioData = e.inputBuffer.getChannelData(0);
+            var int16 = float32ToInt16(audioData);
+            var base64 = arrayBufferToBase64(int16);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ audio: base64 }));
+            }
+        };
+
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(proto + '//' + location.host + '/speech/ws/asr');
+        ws.onopen = function() {
+            addLog('WebSocket 已连接');
+        };
+        ws.onmessage = function(e) { handleMessage(e.data); };
+        ws.onerror = function() { addLog('WebSocket 错误'); stopRecognition(); };
+        ws.onclose = function() { addLog('WebSocket 断开'); stopRecognition(); };
+
+        scriptProcessor.connect(audioCtx.destination);
+    });
+}
+
+function handleMessage(dataStr) {
+    try {
+        var data = JSON.parse(dataStr);
+        if (data.type === 'intermediate') {
+            // 中间结果（实时更新）
+            updateResult(data.text || '');
+            addLog('中间结果: ' + (data.text || '').substring(0, 50));
+        } else if (data.type === 'sentence_end') {
+            // 句子结束（确认结果）
+            updateResult(data.text || '');
+            addLog('句子完成: ' + (data.text || '').substring(0, 50));
+        } else if (data.type === 'complete') {
+            // 识别完成
+            updateResult(data.text || '');
+            addLog('识别完成');
+        } else if (data.type === 'final') {
+            // 最终结果
+            updateResult(data.text || '');
+            addLog('最终结果: ' + (data.text || '').substring(0, 50));
+        } else if (data.type === 'error') {
+            addLog('ASR 错误: ' + (data.text || data.message || '未知错误'));
+        } else if (data.type === 'start') {
+            addLog('ASR 启动: task_id=' + data.taskId);
+        } else {
+            addLog('ASR 消息: ' + data.type);
+        }
+    } catch (e) {
+        addLog('消息解析失败: ' + e.message);
+    }
+}
+
+function updateResult(text) {
+    var panel = document.getElementById('asrResult');
+    if (text) {
+        panel.innerHTML = '<span style="font-size:0.95rem;line-height:1.8;">' + escapeHtml(text) + '</span>';
+    }
+}
+
+function stopRecognition() {
+    isRecording = false;
+    if (scriptProcessor) { scriptProcessor.onaudioprocess = null; scriptProcessor.disconnect(); scriptProcessor = null; }
+    if (mediaStream) { mediaStream.getTracks().forEach(function(t){t.stop();}); mediaStream = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+    if (ws) { ws.close(); ws = null; }
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+    document.getElementById('recogBadge').className = 'badge badge-idle';
+    document.getElementById('recogBadge').textContent = '就绪';
+    addLog('已停止录音');
+}
+
+function resetUI() {
+    document.getElementById('asrResult').innerHTML = '<span style="color:var(--text-secondary);font-size:0.85rem;">点击「开始」并说话，文字将实时显示在这里</span>';
+    document.getElementById('mainLog').innerHTML = '';
+    addLog('界面已重置');
+}
+
+function float32ToInt16(float32Array) {
+    var int16Array = new Int16Array(float32Array.length);
+    for (var i = 0; i < float32Array.length; i++) {
+        var s = Math.max(-1, Math.min(1, float32Array[i]));
+        int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+}
+
+function arrayBufferToBase64(buffer) {
+    var binary = '';
+    var bytes = new Uint8Array(buffer);
+    var chunkSize = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.slice(i, i + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ===== 日志 =====
+function addLog(msg) {
+    var log = document.getElementById('mainLog');
+    var time = new Date().toLocaleTimeString();
+    var entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = '<span class="log-time">' + time + '</span>' + escapeHtml(msg);
+    log.insertBefore(entry, log.firstChild);
+    while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+function setStatus(id, msg, type) {
+    var el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status-msg ' + type;
+}
+
+function copyResult() {
+    var text = document.getElementById('asrResult').innerText;
+    if (!text || text.indexOf('点击') >= 0) { addLog('没有可复制的内容'); return; }
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function(){
+            addLog('已复制到剪贴板');
+            setStatus('ttsStatus', '已复制', 'success');
+        });
+    }
+}
+
+function useAsTtsSource() {
+    var text = document.getElementById('asrResult').innerText;
+    if (!text || text.indexOf('点击') >= 0) return;
+    document.getElementById('ttsText').value = text;
+    updateCharCount();
+    addLog('已填入TTS文本框');
+}
+</script>
+</body>
+</html>

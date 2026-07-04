@@ -1,0 +1,31 @@
+server:
+  port: 5003
+
+spring:
+  application:
+    name: speech-pipeline-java
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  web:
+    resources:
+      add-mappings: true
+    mvc:
+      static-path-pattern: /**
+
+ali:
+  access-key-id: ${ALI_ACCESS_KEY_ID:}
+  access-key-secret: ${ALI_ACCESS_KEY_SECRET:}
+  app-key: ${ALI_APP_KEY:}
+  asr-model: linglong
+  gateway-url: wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1
+
+boson:
+  api:
+    key: ${BOSON_API_KEY:}
+    timeout: 30
+
+logging:
+  level:
+    com.speechpipeline: INFO
